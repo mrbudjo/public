@@ -1,0 +1,1609 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Wisp — a journey of small lights</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    /* delicate, low-chroma palette — soft indigo night with pastel lights */
+    --bg:        oklch(0.17 0.025 285);
+    --bg-2:      oklch(0.22 0.03 285);
+    --fg:        oklch(0.95 0.012 285);
+    --fg-dim:    oklch(0.70 0.02 285);
+    --line:      oklch(0.34 0.03 285);
+    --lav:       oklch(0.80 0.07 300);
+    --blush:     oklch(0.84 0.06 20);
+    --mint:      oklch(0.86 0.06 165);
+    --sky:       oklch(0.82 0.06 240);
+    --cream:     oklch(0.93 0.04 90);
+    --gold:      oklch(0.87 0.08 88);
+    --sans: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--sans);
+    -webkit-font-smoothing: antialiased;
+    cursor: none;
+  }
+  #stage { position: fixed; inset: 0; }
+  canvas, .layer { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+  /* ---- conic menu backdrop (effect 06) ---- */
+  #conic {
+    z-index: 0;
+    background:
+      conic-gradient(from 0turn at 32% 38%,
+        oklch(0.55 0.10 300), oklch(0.60 0.09 240),
+        oklch(0.62 0.08 165), oklch(0.58 0.10 20),
+        oklch(0.55 0.10 300));
+    filter: blur(60px) saturate(1.05);
+    opacity: 0;
+    transition: opacity 1.2s ease;
+    animation: spin 40s linear infinite;
+  }
+  #conic::after {
+    content: ""; position: absolute; inset: -10%;
+    background: conic-gradient(from 0.5turn at 70% 62%,
+      oklch(0.60 0.09 240), transparent 35%, oklch(0.58 0.09 20) 62%, transparent 92%);
+    mix-blend-mode: screen; filter: blur(40px);
+    animation: spin 28s linear infinite reverse;
+  }
+  #conic.show { opacity: 0.55; }
+  @keyframes spin { to { transform: rotate(1turn); } }
+
+  #gl   { z-index: 1; display: none; }
+  #bg2d { z-index: 2; }
+  #fx   { z-index: 3; pointer-events: none; }
+
+  /* ---- gooey blob stage (effect 03) ---- */
+  #goo-stage {
+    z-index: 1;
+    display: none;
+    filter: url(#goo);
+    background: transparent; /* keep the filter on the blobs only — no muddy gooey backdrop */
+  }
+  /* Bloom's backdrop lives on the unfiltered container, behind the gooey blobs */
+  #stage.bloom { background: radial-gradient(ellipse at 50% 42%, oklch(0.20 0.03 290), oklch(0.12 0.02 285) 72%); }
+  .blob {
+    position: absolute;
+    border-radius: 50%;
+    margin: -60px 0 0 -60px;
+    opacity: 0.9;
+    transition: opacity 0.9s ease;
+    pointer-events: none;
+    mix-blend-mode: screen;   /* luminous, translucent orbs that glow where they overlap */
+  }
+
+  /* ---- frosted lens (effect 13) ---- */
+  #lens {
+    z-index: 4;
+    position: absolute;
+    width: 240px; height: 240px;
+    border-radius: 50%;
+    margin: -120px 0 0 -120px;
+    backdrop-filter: blur(6px) saturate(1.5) brightness(1.25);
+    -webkit-backdrop-filter: blur(6px) saturate(1.5) brightness(1.25);
+    border: 1px solid oklch(0.95 0.02 285 / 0.35);
+    box-shadow:
+      inset 0 1px 14px oklch(0.98 0.02 285 / 0.30),
+      0 18px 50px -12px oklch(0.10 0.02 285 / 0.6);
+    pointer-events: none;
+    display: none;
+  }
+
+  /* ---- UI overlay ---- */
+  #ui { z-index: 5; pointer-events: none; }
+  #ui .screen {
+    position: absolute; inset: 0;
+    display: none;
+    flex-direction: column;
+    align-items: center; justify-content: center;
+    pointer-events: none;
+  }
+  #ui .screen.active { display: flex; }
+  #ui .screen > * { pointer-events: auto; }
+
+  /* cursor dot mirror (so menu feels alive even though cursor hidden) */
+
+  /* Title (effects 18 glitch, 19 letter wave, 16 shimmer, 15 magnetic) */
+  .glitch {
+    position: relative;
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 108px;
+    letter-spacing: 0.06em;
+    color: var(--cream);
+    user-select: none;
+    line-height: 1;
+    text-shadow: 0 8px 60px oklch(0.80 0.08 300 / 0.45);
+  }
+  .glitch::before, .glitch::after {
+    content: attr(data-text);
+    position: absolute; left: 0; top: 0; width: 100%;
+    opacity: 0; pointer-events: none;
+  }
+  .glitch.go::before {
+    opacity: 0.8; color: var(--blush);
+    transform: translate(-3px, 0);
+    clip-path: polygon(0 6%, 100% 6%, 100% 36%, 0 36%);
+    animation: glitchA .5s steps(2) 3;
+  }
+  .glitch.go::after {
+    opacity: 0.8; color: var(--sky);
+    transform: translate(3px, 0);
+    clip-path: polygon(0 58%, 100% 58%, 100% 86%, 0 86%);
+    animation: glitchB .5s steps(2) 3;
+  }
+  @keyframes glitchA { 50% { transform: translate(-6px, 1px); } }
+  @keyframes glitchB { 50% { transform: translate(6px, -1px); } }
+
+  .wave-text {
+    font-family: var(--mono);
+    font-size: 14px;
+    letter-spacing: 0.42em;
+    text-transform: uppercase;
+    color: var(--fg-dim);
+    margin: 22px 0 48px;
+    padding-left: 0.42em;
+  }
+  .wave-text span {
+    display: inline-block;
+    animation: letterWave 3.4s ease-in-out infinite;
+    animation-delay: calc(var(--i) * 0.06s);
+  }
+  @keyframes letterWave {
+    0%, 100% { transform: translateY(0); color: var(--fg-dim); }
+    50%      { transform: translateY(-7px); color: var(--lav); }
+  }
+
+  .btn {
+    font-family: var(--sans);
+    font-size: 16px; font-weight: 500;
+    padding: 16px 42px;
+    border: 1px solid oklch(0.70 0.06 300 / 0.5);
+    background: linear-gradient(135deg, oklch(0.34 0.05 300) 0%, oklch(0.30 0.05 260) 100%);
+    color: var(--cream);
+    border-radius: 999px;
+    cursor: none;
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+    will-change: transform;
+    transition: transform .25s cubic-bezier(.2,.7,.2,1.4), box-shadow .3s;
+    box-shadow: 0 10px 40px -12px oklch(0.60 0.08 300 / 0.6);
+  }
+  .btn::before {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(110deg, transparent 38%, oklch(0.98 0.02 285 / 0.35) 50%, transparent 62%);
+    transform: translateX(-120%);
+    animation: shimmerSweep 3.2s infinite;
+    pointer-events: none;
+  }
+  @keyframes shimmerSweep { 0% { transform: translateX(-120%);} 60%,100% { transform: translateX(120%);} }
+
+  /* Level select — spotlight cards (effect 20) */
+  .map-head { text-align: center; margin-bottom: 36px; }
+  .map-head h2 {
+    font-family: var(--sans); font-weight: 500; font-size: 34px;
+    letter-spacing: -0.01em; margin: 0; color: var(--cream);
+  }
+  .map-head p {
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.22em;
+    text-transform: uppercase; color: var(--fg-dim); margin: 10px 0 0;
+  }
+  .cards { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; max-width: 980px; padding: 0 24px; }
+  .card {
+    position: relative;
+    width: 220px; height: 280px;
+    border-radius: 18px;
+    background: oklch(0.21 0.025 285 / 0.72);
+    border: 1px solid var(--line);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    overflow: hidden;
+    padding: 24px;
+    display: flex; flex-direction: column; justify-content: flex-end;
+    cursor: none;
+    --mx: 50%; --my: 30%;
+    transition: transform .3s cubic-bezier(.2,.7,.2,1.2), border-color .3s;
+  }
+  .card:hover { transform: translateY(-8px); border-color: oklch(0.55 0.06 300 / 0.7); }
+  .card::before {
+    content: ""; position: absolute; inset: 0;
+    background: radial-gradient(circle 220px at var(--mx) var(--my),
+      oklch(0.80 0.08 300 / 0.28), transparent 60%);
+    pointer-events: none;
+  }
+  .card .num {
+    position: absolute; top: 20px; left: 24px;
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.2em;
+    color: var(--fg-dim);
+  }
+  .card .ico {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%,-58%);
+    width: 84px; height: 84px; opacity: 0.9;
+  }
+  .card .kick {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.2em;
+    text-transform: uppercase; color: var(--lav);
+  }
+  .card .ttl {
+    font-family: var(--sans); font-weight: 600; font-size: 26px;
+    letter-spacing: -0.01em; color: var(--cream); margin: 6px 0 2px;
+  }
+  .card .sub {
+    font-family: var(--mono); font-size: 11px; color: var(--fg-dim);
+    line-height: 1.5;
+  }
+  .card .done {
+    position: absolute; top: 18px; right: 20px;
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.15em;
+    color: var(--mint); opacity: 0; transition: opacity .4s;
+  }
+  .card.complete .done { opacity: 1; }
+  .card.complete { border-color: oklch(0.60 0.06 165 / 0.55); }
+  .card.complete .ico { opacity: 0.45; }
+
+  /* HUD */
+  #hud {
+    position: absolute; inset: 0;
+    display: none;
+  }
+  #hud.show { display: block; }
+  .hud-name {
+    position: absolute; top: 34px; left: 44px;
+    font-family: var(--sans); font-weight: 500; font-size: 22px;
+    letter-spacing: 0.01em; color: var(--cream);
+    text-shadow: 0 2px 20px oklch(0.10 0.02 285 / 0.8);
+  }
+  .hud-kick {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.22em;
+    text-transform: uppercase; color: var(--fg-dim); margin-bottom: 6px;
+  }
+  .hud-count {
+    position: absolute; top: 34px; right: 44px; text-align: right;
+    font-family: var(--mono); font-size: 13px; letter-spacing: 0.12em;
+    color: var(--fg);
+  }
+  .hud-count b { color: var(--gold); font-weight: 500; font-size: 26px; }
+  .hud-esc {
+    position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.18em;
+    text-transform: uppercase; color: var(--fg-dim);
+    opacity: 0; transition: opacity .5s;
+  }
+  #hud.show .hud-esc { opacity: 0.7; }
+
+  .toast {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%,-50%);
+    font-family: var(--sans); font-weight: 500; font-size: 40px;
+    letter-spacing: 0.01em; color: var(--cream);
+    text-align: center;
+    text-shadow: 0 6px 50px oklch(0.80 0.08 300 / 0.5);
+    opacity: 0; transition: opacity .6s ease;
+    pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+  .toast small {
+    display: block; font-family: var(--mono); font-size: 13px;
+    letter-spacing: 0.2em; text-transform: uppercase;
+    color: var(--lav); margin-top: 14px; font-weight: 400;
+  }
+
+  /* fade-to-black transition */
+  #fade {
+    position: absolute; inset: 0; z-index: 9;
+    background: var(--bg); opacity: 0;
+    pointer-events: none; transition: opacity .55s ease;
+  }
+  #fade.on { opacity: 1; }
+
+  /* custom cursor ring */
+  #cursor {
+    position: fixed; z-index: 20; top: 0; left: 0;
+    width: 26px; height: 26px; margin: -13px 0 0 -13px;
+    border: 1px solid oklch(0.95 0.02 285 / 0.55);
+    border-radius: 50%;
+    pointer-events: none;
+    transition: width .15s, height .15s, margin .15s, opacity .3s;
+    mix-blend-mode: screen;
+  }
+  #cursor.play { opacity: 0; }
+
+  .hint-credit {
+    position: absolute; bottom: 26px; left: 50%; transform: translateX(-50%);
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.18em;
+    text-transform: uppercase; color: var(--fg-dim); opacity: 0.55;
+  }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <div id="conic" class="layer"></div>
+  <canvas id="gl"></canvas>
+  <canvas id="bg2d"></canvas>
+  <canvas id="fx"></canvas>
+  <div id="goo-stage" class="layer"></div>
+  <div id="lens"></div>
+
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <!-- soft blobs: gentle blur only (the orbs are already soft radial gradients) -->
+      <filter id="goo">
+        <feGaussianBlur in="SourceGraphic" stdDeviation="9" />
+      </filter>
+    </defs>
+  </svg>
+
+  <div id="ui" class="layer">
+    <!-- TITLE -->
+    <div class="screen" id="scr-title">
+      <div class="glitch" id="title" data-text="WISP">WISP</div>
+      <div class="wave-text" id="subtitle">a journey of small lights</div>
+      <button class="btn" id="beginBtn">Begin</button>
+      <div class="hint-credit">move the mouse · gather every light</div>
+    </div>
+
+    <!-- LEVEL SELECT -->
+    <div class="screen" id="scr-map">
+      <div class="map-head">
+        <h2 id="mapTitle">choose a place to drift</h2>
+        <p id="mapSub">five scenes · one wandering light</p>
+      </div>
+      <div class="cards" id="cards"></div>
+    </div>
+
+    <!-- ENDING -->
+    <div class="screen" id="scr-end">
+      <div class="wave-text" id="endText" style="font-size:30px;letter-spacing:0.18em;color:var(--cream)">every light gathered</div>
+      <button class="btn" id="againBtn">wander again</button>
+    </div>
+
+    <!-- HUD -->
+    <div id="hud">
+      <div class="hud-name"><div class="hud-kick" id="hudKick"></div><span id="hudName"></span></div>
+      <div class="hud-count"><b id="hudHave">0</b> / <span id="hudNeed">0</span><div style="color:var(--fg-dim);font-size:10px;letter-spacing:0.2em;margin-top:4px">LIGHTS</div></div>
+      <div class="toast" id="toast"></div>
+      <div class="hud-esc">esc · return to map</div>
+    </div>
+  </div>
+
+  <div id="fade"></div>
+</div>
+<div id="cursor"></div>
+
+<script>
+"use strict";
+// ============================================================
+//  WISP — a calm light-gathering journey
+//  Effects woven in: 05 particle trail (the wisp), 06 conic menu,
+//  07 starfield, 08 text scramble, 10 sine ribbons, 13 frosted glass,
+//  14 voronoi, 15 magnetic btn, 16 shimmer, 18 glitch, 19 letter wave,
+//  20 spotlight cards, 23 synthesized pentatonic tones.
+// ============================================================
+
+const stage = document.getElementById("stage");
+const glCanvas = document.getElementById("gl");
+const bgCanvas = document.getElementById("bg2d");
+const fxCanvas = document.getElementById("fx");
+const lensEl   = document.getElementById("lens");
+const gooStage = document.getElementById("goo-stage");
+const cursorEl = document.getElementById("cursor");
+
+let W = 0, H = 0, DPR = 1;
+const bg = bgCanvas.getContext("2d");
+const fx = fxCanvas.getContext("2d");
+
+// ----- delicate palette as [r,g,b] 0..255 (approx of the oklch vars) -----
+const COL = {
+  lav:   [191, 169, 224],
+  blush: [233, 186, 192],
+  mint:  [176, 222, 198],
+  sky:   [173, 198, 233],
+  cream: [240, 232, 214],
+  gold:  [236, 213, 156],
+};
+const HUES = [COL.lav, COL.sky, COL.mint, COL.blush, COL.cream, COL.gold];
+const DARKBLUE = [46, 64, 118];
+function mix(a, b, t) { return [a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t]; }
+function smoothstep(a, b, x) { const t = Math.max(0, Math.min(1, (x-a)/(b-a))); return t*t*(3-2*t); }
+// punchier, more saturated colours for the Veil reveal so they pop against black
+const VEIL_COL = [
+  [120, 235, 175],  // green
+  [245, 150, 185],  // pink
+  [150, 190, 250],  // sky
+  [245, 220, 140],  // gold
+  [200, 160, 245],  // violet
+];
+function rgba(c, a) { return `rgba(${c[0]|0},${c[1]|0},${c[2]|0},${a})`; }
+
+// ============================================================
+//  Sizing
+// ============================================================
+function size2d(canvas, ctx) {
+  canvas.width = Math.floor(W * DPR);
+  canvas.height = Math.floor(H * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+function resize() {
+  W = window.innerWidth; H = window.innerHeight;
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  size2d(bgCanvas, bg);
+  size2d(fxCanvas, fx);
+  glCanvas.width = Math.floor(W * DPR);
+  glCanvas.height = Math.floor(H * DPR);
+  if (GL.gl) GL.gl.viewport(0, 0, glCanvas.width, glCanvas.height);
+  if (!wispReady) { wisp.x = W / 2; wisp.y = H / 2; } // sensible default until the mouse moves
+}
+window.addEventListener("resize", resize);
+
+// ============================================================
+//  Input — single mouse position drives the wisp (and lens)
+// ============================================================
+const mouse = { x: W / 2, y: H / 2, has: false, lastMove: -1e9 };
+window.addEventListener("pointermove", e => {
+  mouse.x = e.clientX; mouse.y = e.clientY; mouse.has = true;
+  mouse.lastMove = performance.now();
+  if (!wispReady) { wisp.x = mouse.x; wisp.y = mouse.y; wispReady = true; } // start AT the cursor
+  cursorEl.style.left = e.clientX + "px";
+  cursorEl.style.top = e.clientY + "px";
+});
+
+// ============================================================
+//  Audio — synthesized pentatonic tones (effect 23)
+// ============================================================
+let actx = null;
+function audio() {
+  if (!actx) {
+    const C = window.AudioContext || window.webkitAudioContext;
+    if (!C) return null;
+    actx = new C();
+  }
+  if (actx.state === "suspended") actx.resume();
+  return actx;
+}
+function tone(freq, dur = 0.5, type = "triangle", vol = 0.13) {
+  const ctx = audio(); if (!ctx) return;
+  const t = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  const osc2 = ctx.createOscillator(); // soft detuned shimmer
+  osc.type = type; osc2.type = type;
+  osc.frequency.value = freq; osc2.frequency.value = freq * 1.005;
+  gain.gain.setValueAtTime(0, t);
+  gain.gain.linearRampToValueAtTime(vol, t + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.0008, t + dur);
+  osc.connect(gain); osc2.connect(gain); gain.connect(ctx.destination);
+  osc.start(t); osc2.start(t);
+  osc.stop(t + dur + 0.05); osc2.stop(t + dur + 0.05);
+}
+// C major pentatonic, rising — so each level "plays a melody" as you collect
+const SCALE = [261.63, 293.66, 329.63, 392.0, 440.0,
+               523.25, 587.33, 659.25, 783.99, 880.0,
+               1046.5, 1174.7, 1318.5, 1568.0, 1760.0, 2093.0];
+function chime(i) { tone(SCALE[i % SCALE.length], 0.6, "triangle", 0.12); }
+function pad() { // soft chord on entering a level
+  [261.63, 329.63, 392.0].forEach((f, i) =>
+    setTimeout(() => tone(f, 2.2, "sine", 0.05), i * 90));
+}
+function arpUp() {
+  [523.25, 659.25, 783.99, 1046.5, 1318.5].forEach((f, i) =>
+    setTimeout(() => tone(f, 0.9, "triangle", 0.12), i * 110));
+}
+
+// ============================================================
+//  The wisp + its particle trail (effect 05)
+// ============================================================
+const wisp = { x: W / 2, y: H / 2 };
+let wispReady = false;   // becomes true on the first real mouse move (snaps wisp to cursor)
+let wispPower = 1;       // 0..1 — how "lit" the wisp is; some levels dim it in places
+const parts = [];
+let tNow = 0;
+
+function emit(x, y, n, spread, col, life) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const sp = Math.random() * spread;
+    parts.push({
+      x, y,
+      vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+      life: life * (0.6 + Math.random() * 0.6),
+      max: life,
+      col: col || HUES[(Math.random() * HUES.length) | 0],
+      r: 1.5 + Math.random() * 2.5,
+    });
+  }
+}
+
+const IDLE_DELAY = 5200;   // wait longer before taking over
+let idleSince = 0, idleAnchor = null;
+function updateWisp(dt) {
+  const now = performance.now();
+  const idle = now - mouse.lastMove > IDLE_DELAY;
+  let tx, ty, ease;
+  if (mouse.has && !idle) {
+    tx = mouse.x; ty = mouse.y; ease = 0.16;
+    idleAnchor = null;
+  } else {
+    // ease INTO the idle orbit: start where the wisp is, grow the radius over time
+    if (!idleAnchor) { idleAnchor = { x: wisp.x, y: wisp.y }; idleSince = now; }
+    const ramp = Math.min(1, (now - idleSince) / 7000); // 7s ramp from still → full orbit
+    idleAnchor.x += (W / 2 - idleAnchor.x) * 0.0015;      // anchor drifts gently toward centre
+    idleAnchor.y += (H / 2 - idleAnchor.y) * 0.0015;
+    // two same-direction rotations (an epicycle): a smooth wandering loop that never
+    // reverses (no U-turns) and isn't an obvious figure-8
+    const a = tNow * 0.0005;
+    tx = idleAnchor.x + (Math.cos(a) * 0.20 + Math.cos(a * 0.5 + 1.7) * 0.08) * W * ramp;
+    ty = idleAnchor.y + (Math.sin(a) * 0.20 + Math.sin(a * 0.5 + 1.7) * 0.08) * H * ramp;
+    ease = 0.05;                                          // slower, dreamier follow when idle
+  }
+  wisp.x += (tx - wisp.x) * ease;
+  wisp.y += (ty - wisp.y) * ease;
+
+  // continuously emit a faint trail
+  emit(wisp.x, wisp.y, 2, 0.5, null, 46);
+}
+
+function drawFx() {
+  // fade previous frame WITHOUT painting over the background (keeps fx transparent)
+  fx.globalCompositeOperation = "destination-out";
+  fx.fillStyle = "rgba(0,0,0,0.10)";
+  fx.fillRect(0, 0, W, H);
+
+  const m = 0.15 + 0.85 * wispPower; // dim the light where a level says it's weak (never fully off)
+  fx.globalCompositeOperation = "lighter";
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const p = parts[i];
+    p.x += p.vx; p.y += p.vy;
+    p.vx *= 0.94; p.vy *= 0.94;
+    p.life--;
+    if (p.life <= 0) { parts.splice(i, 1); continue; }
+    const a = p.life / p.max;
+    fx.fillStyle = rgba(p.col, a * 0.5 * m);
+    fx.beginPath();
+    fx.arc(p.x, p.y, p.r * a, 0, 6.283);
+    fx.fill();
+  }
+  // bright wisp core (10% smaller than the hollow ring cursor)
+  const grd = fx.createRadialGradient(wisp.x, wisp.y, 0, wisp.x, wisp.y, 23.4);
+  grd.addColorStop(0, rgba(COL.cream, 0.9 * m));
+  grd.addColorStop(0.4, rgba(COL.lav, 0.5 * m));
+  grd.addColorStop(1, rgba(COL.lav, 0));
+  fx.fillStyle = grd;
+  fx.beginPath(); fx.arc(wisp.x, wisp.y, 23.4, 0, 6.283); fx.fill();
+  fx.globalCompositeOperation = "source-over";
+  if (parts.length > 1400) parts.splice(0, parts.length - 1400);
+}
+
+// ============================================================
+//  Collectible lights
+// ============================================================
+function drawLight(ctx, L, t) {
+  if (L.got) return;
+  const pulse = 0.7 + 0.3 * Math.sin(t * 0.004 + L.ph);
+  const r = L.r * pulse;
+  const g = ctx.createRadialGradient(L.x, L.y, 0, L.x, L.y, r * 3.2);
+  g.addColorStop(0, rgba(L.col, 0.95));
+  g.addColorStop(0.3, rgba(L.col, 0.5));
+  g.addColorStop(1, rgba(L.col, 0));
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(L.x, L.y, r * 3.2, 0, 6.283); ctx.fill();
+  ctx.fillStyle = rgba(COL.cream, 0.9 * pulse);
+  ctx.beginPath(); ctx.arc(L.x, L.y, r * 0.6, 0, 6.283); ctx.fill();
+}
+
+function tryCollect(radius) {
+  const lv = Game.current;
+  if (!lv) return;
+  if (wispPower < 0.5) return; // can't gather when the wisp's light is dimmed
+  for (const L of lv.lights) {
+    if (L.got) continue;
+    if (L.armed === false) continue; // timing levels: only collectible while "armed"
+    const d = Math.hypot(L.x - wisp.x, L.y - wisp.y);
+    if (d < radius) {
+      L.got = true;
+      lv.have++;
+      chime(lv.have - 1);
+      emit(L.x, L.y, 26, 3.2, L.col, 60);
+      updateHud();
+      if (lv.have >= lv.lights.length) onLevelComplete();
+    }
+  }
+}
+
+// ============================================================
+//  WebGL voronoi shader (effect 14) — delicate, wisp-reactive
+// ============================================================
+const GL = { gl: null, prog: null, u: {}, t0: 0 };
+function initGL() {
+  const gl = glCanvas.getContext("webgl", { antialias: true, premultipliedAlpha: false });
+  if (!gl) return;
+  const vs = `attribute vec2 p; void main(){ gl_Position = vec4(p,0.0,1.0); }`;
+  const fs = `
+    precision highp float;
+    #define NUM 12
+    uniform vec2 u_res; uniform float u_time;
+    uniform vec2 u_wisp;            // 0..1, y DOWN (matches JS pixel coords)
+    uniform float u_glow;           // 0..1 overall progress glow
+    uniform vec2 u_sites[NUM];      // explicit, JS-controlled cell sites (0..1, y down)
+    uniform float u_aspect;
+
+    vec3 pcol(float id){
+      vec3 t = 0.5 + 0.5*cos(6.2831*(id*0.13) + vec3(0.4,1.4,2.6));
+      return mix(vec3(0.62), t, 0.34); // desaturate -> pastel
+    }
+    void main(){
+      // normalized, y down, with x stretched by aspect so cells stay round
+      vec2 uv = vec2(gl_FragCoord.x/u_res.x, 1.0 - gl_FragCoord.y/u_res.y);
+      vec2 p = vec2(uv.x*u_aspect, uv.y);
+
+      float md = 1e9; int mi = 0; vec2 sN = vec2(0.0);
+      for (int i=0;i<NUM;i++){
+        vec2 s = vec2(u_sites[i].x*u_aspect, u_sites[i].y);
+        vec2 dv = p - s; float d = dot(dv,dv);
+        if (d < md){ md = d; mi = i; sN = s; }
+      }
+      // distance to nearest Voronoi boundary via perpendicular bisectors
+      float edge = 1e9;
+      for (int i=0;i<NUM;i++){
+        vec2 s = vec2(u_sites[i].x*u_aspect, u_sites[i].y);
+        vec2 diff = s - sN;
+        if (dot(diff,diff) > 0.00001)
+          edge = min(edge, dot(0.5*(s+sN) - p, normalize(diff)));
+      }
+
+      vec3 base = vec3(0.13,0.12,0.18) * 1.35;
+      vec3 tint = pcol(float(mi));
+      float line = smoothstep(0.0, 0.018, edge);   // dark seams between cells
+      vec3 col = mix(base, base + tint*0.34, line);
+
+      // glow the cell under the wisp
+      vec2 wp = vec2(u_wisp.x*u_aspect, u_wisp.y);
+      float dw = distance(p, wp);
+      float near = smoothstep(0.24, 0.0, dw);
+      col += tint * near * 0.5;
+      col += vec3(0.9,0.85,0.8) * (1.0-line) * near * 0.30;
+
+      col += tint * u_glow * 0.10; // gentle overall brightening with progress
+      gl_FragColor = vec4(col, 1.0);
+    }`;
+  function sh(type, src){ const s=gl.createShader(type); gl.shaderSource(s,src); gl.compileShader(s);
+    if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)) console.error(gl.getShaderInfoLog(s)); return s; }
+  const prog = gl.createProgram();
+  gl.attachShader(prog, sh(gl.VERTEX_SHADER, vs));
+  gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, fs));
+  gl.linkProgram(prog); gl.useProgram(prog);
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]), gl.STATIC_DRAW);
+  const loc = gl.getAttribLocation(prog, "p");
+  gl.enableVertexAttribArray(loc);
+  gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+  GL.gl = gl; GL.prog = prog; GL.t0 = performance.now();
+  GL.u = {
+    res: gl.getUniformLocation(prog, "u_res"),
+    time: gl.getUniformLocation(prog, "u_time"),
+    wisp: gl.getUniformLocation(prog, "u_wisp"),
+    glow: gl.getUniformLocation(prog, "u_glow"),
+    sites: gl.getUniformLocation(prog, "u_sites[0]"),
+    aspect: gl.getUniformLocation(prog, "u_aspect"),
+  };
+}
+function drawGL(glowProgress, sites) {
+  const gl = GL.gl; if (!gl) return;
+  gl.viewport(0, 0, glCanvas.width, glCanvas.height);
+  gl.useProgram(GL.prog);
+  gl.uniform2f(GL.u.res, glCanvas.width, glCanvas.height);
+  gl.uniform1f(GL.u.time, (performance.now() - GL.t0) / 1000);
+  gl.uniform2f(GL.u.wisp, wisp.x / W, wisp.y / H);
+  gl.uniform1f(GL.u.glow, glowProgress);
+  gl.uniform1f(GL.u.aspect, W / H);
+  if (sites) gl.uniform2fv(GL.u.sites, sites);
+  gl.drawArrays(gl.TRIANGLES, 0, 6);
+}
+
+// ============================================================
+//  Background helpers
+// ============================================================
+function fillNight(top, bot) {
+  const g = bg.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, top); g.addColorStop(1, bot);
+  bg.fillStyle = g; bg.fillRect(0, 0, W, H);
+}
+
+// shared drifting starfield (effect 07, gentle)
+const STARS = [];
+function seedStars(n) {
+  STARS.length = 0;
+  for (let i = 0; i < n; i++)
+    STARS.push({ x: Math.random(), y: Math.random(), r: Math.random() * 1.4 + 0.3, tw: Math.random() * 6.28 });
+}
+seedStars(140);
+function drawStars(t, alpha) {
+  for (const s of STARS) {
+    const tw = 0.5 + 0.5 * Math.sin(t * 0.002 + s.tw);
+    bg.fillStyle = rgba(COL.cream, alpha * tw);
+    bg.beginPath(); bg.arc(s.x * W, s.y * H, s.r, 0, 6.283); bg.fill();
+  }
+}
+
+// ============================================================
+//  LEVELS
+// ============================================================
+function rand(a, b) { return a + Math.random() * (b - a); }
+function clamp01(v) { return v < 0 ? 0 : v > 1 ? 1 : v; }
+// cheap pseudo-noise flow direction (radians) — used by the Current level
+function flowAngle(x, y, t) {
+  return (Math.sin(x * 0.004 + t) + Math.cos(y * 0.005 - t * 0.7) + Math.sin((x + y) * 0.003 + t * 0.5)) * Math.PI;
+}
+function mkLight(x, y, col) { return { x, y, r: 7, col: col || HUES[(Math.random()*HUES.length)|0], ph: Math.random()*6.28, got: false }; }
+
+// circumcenter of a triangle (the meeting point of 3 Voronoi cells) — inputs {x,y}
+function circum(A, B, C) {
+  const ax = A.x, ay = A.y, bx = B.x, by = B.y, cx = C.x, cy = C.y;
+  const d = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by));
+  if (Math.abs(d) < 1e-9) return { x: (ax + bx + cx) / 3, y: (ay + by + cy) / 3 };
+  const a2 = ax * ax + ay * ay, b2 = bx * bx + by * by, c2 = cx * cx + cy * cy;
+  return {
+    x: (a2 * (by - cy) + b2 * (cy - ay) + c2 * (ay - by)) / d,
+    y: (a2 * (cx - bx) + b2 * (ax - cx) + c2 * (bx - ax)) / d,
+  };
+}
+
+const LEVELS = [
+  // ---------- 1 · DRIFT — nebula + stars ----------
+  {
+    key: "drift", num: "I", kicker: "open sky",
+    name: "Drift", title: "Drift",
+    sub: "where small lights gather",
+    collectR: 34, gl: false,
+    setup() {
+      this.lights = [];
+      for (let i = 0; i < 9; i++)
+        this.lights.push(mkLight(rand(W*0.12, W*0.88), rand(H*0.16, H*0.84)));
+      this.clouds = [];
+      for (let i = 0; i < 5; i++)
+        this.clouds.push({ x: rand(0,1), y: rand(0,1), r: rand(0.25,0.5),
+          col: HUES[i % HUES.length], dx: rand(-0.02,0.02), dy: rand(-0.015,0.015), ph: rand(0,6.28) });
+    },
+    update(dt, t) {
+      // drifting lights bob slowly
+      for (const L of this.lights) { L.y += Math.sin(t*0.001 + L.ph) * 0.15; }
+    },
+    drawBg(t) {
+      fillNight("oklch(0.18 0.03 285)", "oklch(0.13 0.025 280)");
+      // soft nebula clouds (lighter blend)
+      bg.globalCompositeOperation = "lighter";
+      for (const c of this.clouds) {
+        c.x += c.dx * 0.002; c.y += c.dy * 0.002;
+        if (c.x < -0.2) c.x = 1.2; if (c.x > 1.2) c.x = -0.2;
+        if (c.y < -0.2) c.y = 1.2; if (c.y > 1.2) c.y = -0.2;
+        const cx = c.x * W, cy = c.y * H, rr = c.r * Math.min(W, H);
+        const breathe = 0.85 + 0.15 * Math.sin(t * 0.0008 + c.ph);
+        const g = bg.createRadialGradient(cx, cy, 0, cx, cy, rr * breathe);
+        g.addColorStop(0, rgba(c.col, 0.12));
+        g.addColorStop(1, rgba(c.col, 0));
+        bg.fillStyle = g;
+        bg.beginPath(); bg.arc(cx, cy, rr * breathe, 0, 6.283); bg.fill();
+      }
+      drawStars(t, 0.5);
+      bg.globalCompositeOperation = "source-over";
+      for (const L of this.lights) drawLight(bg, L, t);
+    },
+  },
+
+  // ---------- 2 · HOLLOW — voronoi (effect 14) ----------
+  // Lights live at cell vertices (where 3 cells meet) and drift as the cells move.
+  {
+    key: "hollow", num: "II", kicker: "the deep",
+    name: "Hollow", title: "Hollow",
+    sub: "light pools where the cells meet",
+    collectR: 40, gl: true,
+    setup() {
+      const cols = 4, rows = 3;            // 12 sites — matches #define NUM in the shader
+      this.sites = [];
+      for (let r = 0; r < rows; r++)
+        for (let c = 0; c < cols; c++) {
+          this.sites.push({
+            bx: (c + 0.5) / cols, by: (r + 0.5) / rows,        // normalized base
+            jx: (Math.random() - 0.5) * 0.08, jy: (Math.random() - 0.5) * 0.08,
+            ox: 0.032 + Math.random() * 0.028, oy: 0.032 + Math.random() * 0.028, // orbit radii
+            sx: 0.38 + Math.random() * 0.5, sy: 0.38 + Math.random() * 0.5,        // orbit speeds
+            phx: rand(0, 6.28), phy: rand(0, 6.28),
+            x: 0, y: 0,
+          });
+        }
+      this.siteNorm = new Float32Array(cols * rows * 2);
+      // every unordered triple of sites is a candidate vertex
+      this.tris = [];
+      const n = this.sites.length;
+      for (let i = 0; i < n; i++)
+        for (let j = i + 1; j < n; j++)
+          for (let k = j + 1; k < n; k++) this.tris.push([i, j, k]);
+      this.lights = [];
+      for (let i = 0; i < 8; i++)
+        this.lights.push({ r: 7, col: HUES[i % HUES.length], ph: rand(0, 6.28), got: false, x: W / 2, y: H / 2 });
+      this.aspect = W / H;
+      this.firstFrame = true; // first update snaps lights onto vertices instead of gliding in
+    },
+    update(dt, t) {
+      const A = this.aspect = W / H;
+      // animate sites (normalized) and build the stretched-space copy the shader uses
+      const S = [];
+      for (let i = 0; i < this.sites.length; i++) {
+        const s = this.sites[i];
+        s.x = clamp01(s.bx + s.jx + Math.cos(t * 0.001 * s.sx + s.phx) * s.ox);
+        s.y = clamp01(s.by + s.jy + Math.sin(t * 0.001 * s.sy + s.phy) * s.oy);
+        this.siteNorm[i * 2] = s.x;
+        this.siteNorm[i * 2 + 1] = s.y;
+        S.push({ x: s.x * A, y: s.y });
+      }
+      // a circumcenter is a TRUE Voronoi vertex only if no other site is closer to it
+      const verts = [];
+      for (const [i, j, k] of this.tris) {
+        const cc = circum(S[i], S[j], S[k]);
+        if (cc.x < 0 || cc.x > A || cc.y < 0 || cc.y > 1) continue;
+        const dx = cc.x - S[i].x, dy = cc.y - S[i].y;
+        const d2 = dx * dx + dy * dy;
+        let valid = true;
+        for (let m = 0; m < S.length; m++) {
+          if (m === i || m === j || m === k) continue;
+          const ex = cc.x - S[m].x, ey = cc.y - S[m].y;
+          if (ex * ex + ey * ey < d2 - 1e-5) { valid = false; break; }
+        }
+        if (valid) verts.push({ x: cc.x / A * W, y: cc.y * H });
+      }
+      // Assign each uncollected light to a vertex. Two rules keep it calm:
+      //  • spacing — don't put two lights on near-adjacent vertices (no pairs)
+      //  • locality — after the first frame, only adopt a vertex that's NEARBY, so a
+      //    light tracks its own intersection instead of jumping across the screen.
+      // On the very first frame lights snap straight onto spread-out vertices (no sweep,
+      // so nothing auto-collects on entry).
+      const used = new Array(verts.length).fill(false);
+      const placed = [];
+      const MIN2 = 150 * 150;
+      const MAXMOVE2 = this.firstFrame ? Infinity : 200 * 200;
+      for (const L of this.lights) {
+        if (L.got) continue;
+        let best = -1, bd = Infinity;
+        // pass 1: nearest free vertex within range that also respects spacing
+        for (let v = 0; v < verts.length; v++) {
+          if (used[v]) continue;
+          const dx = verts[v].x - L.x, dy = verts[v].y - L.y;
+          const d = dx * dx + dy * dy;
+          if (d > MAXMOVE2) continue;
+          let tooClose = false;
+          for (const p of placed) {
+            const px = verts[v].x - p.x, py = verts[v].y - p.y;
+            if (px * px + py * py < MIN2) { tooClose = true; break; }
+          }
+          if (tooClose) continue;
+          if (d < bd) { bd = d; best = v; }
+        }
+        // pass 2: nearest free vertex within range, spacing relaxed
+        if (best < 0) {
+          for (let v = 0; v < verts.length; v++) {
+            if (used[v]) continue;
+            const dx = verts[v].x - L.x, dy = verts[v].y - L.y;
+            const d = dx * dx + dy * dy;
+            if (d > MAXMOVE2) continue;
+            if (d < bd) { bd = d; best = v; }
+          }
+        }
+        if (best >= 0) {
+          used[best] = true;
+          const v = verts[best];
+          if (this.firstFrame) { L.x = v.x; L.y = v.y; } // start ON the vertices
+          else {
+            // move at a constant gentle speed. Normal tracking is < SPD/frame so it snaps
+            // (exact). A re-match (vertex swap) covers the gap at the SAME slow pace, sliding
+            // along the connecting seam so it reads as intentional rather than a burst.
+            const dx = v.x - L.x, dy = v.y - L.y, dist = Math.hypot(dx, dy), SPD = 0.7;
+            if (dist <= SPD) { L.x = v.x; L.y = v.y; }
+            else { L.x += dx / dist * SPD; L.y += dy / dist * SPD; }
+          }
+          placed.push(v);
+        }
+        // else: no vertex nearby this frame — stay put rather than jump across the screen
+      }
+      this.firstFrame = false;
+    },
+    drawBg(t) {
+      bg.clearRect(0, 0, W, H); // let the GL voronoi show through
+      for (const L of this.lights) drawLight(bg, L, t);
+    },
+  },
+
+  // ---------- 3 · TIDE — sine ribbons (effect 10, trimmed) ----------
+  {
+    key: "tide", num: "III", kicker: "slow water",
+    name: "Tide", title: "Tide",
+    sub: "ride the long waves",
+    collectR: 30, gl: false,
+    setup() {
+      this.layers = [
+        { amp: 0.10, freq: 1.4, speed: 0.5, off: 0.40, col: COL.sky,   w: 2.2 },
+        { amp: 0.13, freq: 1.0, speed: 0.35, off: 0.55, col: COL.lav,  w: 2.6 },
+        { amp: 0.08, freq: 1.9, speed: 0.7, off: 0.66, col: COL.mint,  w: 2.0 },
+      ];
+      // lights ride the crest of the lavender ribbon (index 1)
+      this.host = this.layers[1];
+      this.lights = [];
+      for (let i = 0; i < 10; i++) {
+        const px = (i + 0.5) / 10;
+        this.lights.push({ px, r: 7, col: COL.gold, ph: Math.random()*6.28, got: false, x: 0, y: 0 });
+      }
+    },
+    waveY(L, px, t) {
+      return H * (L.off
+        + L.amp * Math.sin(px * Math.PI * 2 * L.freq + t * 0.001 * L.speed * 6)
+        + 0.03 * Math.sin(px * Math.PI * 8 + t * 0.002));
+    },
+    update(dt, t) {
+      for (const L of this.lights) {
+        L.x = L.px * W;
+        L.y = this.waveY(this.host, L.px, t);
+      }
+    },
+    drawBg(t) {
+      fillNight("oklch(0.16 0.03 250)", "oklch(0.12 0.02 270)");
+      drawStars(t, 0.3);
+      bg.globalCompositeOperation = "lighter";
+      for (const L of this.layers) {
+        // glowing ribbon line + soft fill that fades out (no bright white pileup)
+        bg.beginPath();
+        for (let x = 0; x <= W; x += 6) {
+          const px = x / W;
+          const y = this.waveY(L, px, t);
+          if (x === 0) bg.moveTo(x, y); else bg.lineTo(x, y);
+        }
+        // faint downward fill, fading to transparent
+        bg.save();
+        const grad = bg.createLinearGradient(0, H * (L.off - L.amp), 0, H * (L.off + 0.18));
+        grad.addColorStop(0, rgba(L.col, 0.16));
+        grad.addColorStop(1, rgba(L.col, 0));
+        bg.lineTo(W, H * (L.off + 0.18)); bg.lineTo(0, H * (L.off + 0.18)); bg.closePath();
+        bg.fillStyle = grad; bg.fill();
+        bg.restore();
+        // crisp glowing crest line
+        bg.beginPath();
+        for (let x = 0; x <= W; x += 6) {
+          const px = x / W; const y = this.waveY(L, px, t);
+          if (x === 0) bg.moveTo(x, y); else bg.lineTo(x, y);
+        }
+        bg.strokeStyle = rgba(L.col, 0.55);
+        bg.lineWidth = L.w; bg.stroke();
+      }
+      bg.globalCompositeOperation = "source-over";
+      for (const L of this.lights) drawLight(bg, L, t);
+    },
+  },
+
+  // ---------- 4 · VEIL — frosted glass lens (effect 13) ----------
+  {
+    key: "veil", num: "IV", kicker: "hidden things",
+    name: "Veil", title: "Veil",
+    sub: "seen only through glass",
+    collectR: 46, gl: false, lens: true, lensR: 120,
+    setup() {
+      // varied, saturated colours so each hidden light is discovered as green / pink / gold / sky
+      this.lights = [];
+      for (let i = 0; i < 10; i++)
+        this.lights.push(mkLight(rand(W*0.12, W*0.88), rand(H*0.18, H*0.82), VEIL_COL[i % VEIL_COL.length]));
+    },
+    update() {},
+    drawBg(t) {
+      fillNight("oklch(0.16 0.02 300)", "oklch(0.11 0.015 290)");
+      // faint, almost-invisible hint texture so the field isn't empty
+      bg.globalCompositeOperation = "lighter";
+      drawStars(t, 0.16);
+      bg.globalCompositeOperation = "source-over";
+      // reveal uncollected lights ONLY inside the lens circle — bright & additive so colour pops
+      bg.save();
+      bg.beginPath();
+      bg.arc(wisp.x, wisp.y, this.lensR, 0, 6.283);
+      bg.clip();
+      bg.globalCompositeOperation = "lighter";
+      for (const L of this.lights) {
+        if (L.got) continue;
+        const pulse = 0.85 + 0.15 * Math.sin(t * 0.004 + L.ph);
+        const rad = L.r * 4.2 * pulse;
+        const g = bg.createRadialGradient(L.x, L.y, 0, L.x, L.y, rad);
+        g.addColorStop(0, rgba(L.col, 1));
+        g.addColorStop(0.28, rgba(L.col, 0.85));
+        g.addColorStop(1, rgba(L.col, 0));
+        bg.fillStyle = g;
+        bg.beginPath(); bg.arc(L.x, L.y, rad, 0, 6.283); bg.fill();
+        bg.fillStyle = rgba(COL.cream, 0.95);
+        bg.beginPath(); bg.arc(L.x, L.y, L.r * 0.8 * pulse, 0, 6.283); bg.fill();
+      }
+      bg.globalCompositeOperation = "source-over";
+      bg.restore();
+      // collected lights stay softly visible everywhere (a record of progress)
+      for (const L of this.lights) {
+        if (!L.got) continue;
+        bg.fillStyle = rgba(L.col, 0.28);
+        bg.beginPath(); bg.arc(L.x, L.y, 4, 0, 6.283); bg.fill();
+      }
+    },
+  },
+
+  // ---------- 5 · BLOOM — gooey blobs (effect 03) ----------
+  // Independent blobs wander on gentle curves; each cradles a light. Touch to release.
+  {
+    key: "bloom", num: "V", kicker: "soft tide",
+    name: "Bloom", title: "Bloom",
+    sub: "chase the wandering blooms",
+    collectR: 42, gl: false, goo: true,
+    setup() {
+      gooStage.innerHTML = "";
+      const pal = [COL.lav, COL.blush, COL.mint, COL.sky, COL.gold, COL.lav, COL.blush];
+      this.blobs = [];
+      this.lights = [];
+      for (let i = 0; i < 7; i++) {
+        const el = document.createElement("div");
+        el.className = "blob";
+        const sz = 84 + Math.random() * 64;
+        el.style.width = el.style.height = sz + "px";
+        el.style.margin = (-sz / 2) + "px 0 0 " + (-sz / 2) + "px";
+        // soft glowing orb: brighter heart fading out — feels misty rather than a solid disc
+        const c = pal[i % pal.length];
+        el.style.background = `radial-gradient(circle, ${rgba(c, 0.85)} 0%, ${rgba(c, 0.4)} 42%, ${rgba(c, 0)} 72%)`;
+        gooStage.appendChild(el);
+        const b = {
+          el, r: sz / 2,
+          x: rand(W * 0.18, W * 0.82), y: rand(H * 0.18, H * 0.82),
+          angle: rand(0, 6.28), speed: rand(1.3, 2.0), turn: rand(-0.01, 0.01),
+        };
+        this.blobs.push(b);
+        this.lights.push({ x: b.x, y: b.y, r: 7, col: pal[i % pal.length], ph: rand(0, 6.28), got: false, blob: b });
+      }
+    },
+    update(dt, t) {
+      for (const b of this.blobs) {
+        // smoothly-varying turn rate → gentle curves, never abrupt zig-zags
+        b.turn += rand(-0.0009, 0.0009);
+        b.turn = Math.max(-0.035, Math.min(0.035, b.turn));
+        b.angle += b.turn;
+        b.x += Math.cos(b.angle) * b.speed;
+        b.y += Math.sin(b.angle) * b.speed;
+        // reflect heading off the walls (still a smooth curve, not a bounce-jitter)
+        if (b.x < b.r) { b.x = b.r; b.angle = Math.PI - b.angle; }
+        else if (b.x > W - b.r) { b.x = W - b.r; b.angle = Math.PI - b.angle; }
+        if (b.y < b.r) { b.y = b.r; b.angle = -b.angle; }
+        else if (b.y > H - b.r) { b.y = H - b.r; b.angle = -b.angle; }
+        b.el.style.left = b.x + "px";
+        b.el.style.top = b.y + "px";
+      }
+      for (const L of this.lights) {
+        L.x = L.blob.x; L.y = L.blob.y;
+        if (L.got) L.blob.el.style.opacity = "0"; // dissolve once released
+      }
+    },
+    drawBg(t) {
+      bg.clearRect(0, 0, W, H); // show the gooey stage behind
+      for (const L of this.lights) drawLight(bg, L, t);
+    },
+  },
+
+  // ---------- 6 · CURRENT — flow field (effect 02) ----------
+  // A noise current constantly pushes the wisp; steer against it to reach the lights.
+  {
+    key: "current", num: "VI", kicker: "the drift takes you",
+    name: "Current", title: "Current",
+    sub: "steer against the flow",
+    collectR: 36, gl: false,
+    setup() {
+      this.tf = 0;
+      this.lights = [];
+      for (let i = 0; i < 11; i++) {
+        const L = mkLight(rand(W * 0.12, W * 0.88), rand(H * 0.14, H * 0.86));
+        L.nextRip = rand(0, 1300);   // when this light next sheds a ripple
+        this.lights.push(L);
+      }
+      this.fp = [];
+      for (let i = 0; i < 280; i++) this.fp.push(this.mkDot());
+      this.ripples = [];
+      this.wispNextRip = 0;
+    },
+    mkDot() {  // current dot: varied colour (sky → dark blue) and varied alpha (faint → bright)
+      return { x: rand(0, W), y: rand(0, H), life: rand(0, 240),
+        col: mix(COL.sky, DARKBLUE, Math.random()), al: rand(0.16, 0.42) };
+    },
+    // a ripple: born at a point, grows at ~the light's speed, and DRIFTS with a fixed velocity
+    // (the light's velocity at birth ± variability) so it keeps heading the way it started.
+    mkRipple(x, y, t, vx, vy) {
+      return { x, y, vx, vy, born: t,
+        gspeed: rand(12, 22),                                   // px/sec radial growth ≈ light speed
+        maxR: rand(80, 150),
+        width: Math.random() < 0.4 ? rand(1, 2) : rand(2.5, 6), // some thin, some wide
+        dw: rand(-2.5, 3),                                      // slowly thins (−) or thickens (+)
+        a: rand(0.16, 0.36) };                                  // 20% dimmer
+    },
+    shed(x, y, t, still) {  // ripple velocity: lights carry the flow; the cursor's stay ~still
+      let vx, vy;
+      if (still) {           // cursor isn't carried by the current → start near zero (± fuzz)
+        vx = rand(-0.06, 0.06); vy = rand(-0.06, 0.06);
+      } else {
+        const a = flowAngle(x, y, this.tf) + rand(-0.3, 0.3);
+        const spd = 0.27 * rand(0.6, 1.4);
+        vx = Math.cos(a) * spd; vy = Math.sin(a) * spd;
+      }
+      this.ripples.push(this.mkRipple(x, y, t, vx, vy));
+    },
+    update(dt, t) {
+      this.tf += 0.003;
+      for (const L of this.lights) {  // lights drift WITH the background dots (same field & speed)
+        const a = flowAngle(L.x, L.y, this.tf);
+        L.x += Math.cos(a) * 0.27; L.y += Math.sin(a) * 0.27;
+      }
+      // gentle separation so two lights caught in the same current don't stay stuck together;
+      // a small nudge apart when within 50px lets the current finish splitting them
+      for (let i = 0; i < this.lights.length; i++) {
+        const A = this.lights[i]; if (A.got) continue;
+        for (let j = i + 1; j < this.lights.length; j++) {
+          const B = this.lights[j]; if (B.got) continue;
+          let dx = B.x - A.x, dy = B.y - A.y; const d = Math.hypot(dx, dy);
+          if (d > 0 && d < 50) {
+            const f = (50 - d) / 50 * 0.2; dx /= d; dy /= d;
+            A.x -= dx * f; A.y -= dy * f; B.x += dx * f; B.y += dy * f;
+          }
+        }
+      }
+      for (const L of this.lights) { L.x = (L.x + W) % W; L.y = (L.y + H) % H; }
+      // shed ripples (20% more often than before), then drift & retire them
+      for (const L of this.lights) {
+        if (L.got) continue;
+        if (t >= L.nextRip) { this.shed(L.x, L.y, t); L.nextRip = t + rand(968, 1936); }
+      }
+      if (t >= this.wispNextRip) { this.shed(wisp.x, wisp.y, t, true); this.wispNextRip = t + rand(792, 1320); }
+      for (let i = this.ripples.length - 1; i >= 0; i--) {
+        const r = this.ripples[i];
+        // move by birth velocity, but swayed 50% toward the local current as it travels
+        const a = flowAngle(r.x, r.y, this.tf);
+        const cvx = Math.cos(a) * 0.27, cvy = Math.sin(a) * 0.27;
+        r.x += r.vx * 0.5 + cvx * 0.5;
+        r.y += r.vy * 0.5 + cvy * 0.5;
+        if ((t - r.born) / 1000 * r.gspeed > r.maxR * 2) this.ripples.splice(i, 1); // reach 2× before gone
+      }
+    },
+    afterWisp() {  // push the wisp with the flow
+      const a = flowAngle(wisp.x, wisp.y, this.tf);
+      wisp.x += Math.cos(a) * 0.85;
+      wisp.y += Math.sin(a) * 0.85;
+    },
+    drawBg(t) {
+      fillNight("oklch(0.15 0.03 210)", "oklch(0.12 0.02 255)");
+      bg.globalCompositeOperation = "lighter";
+      for (const p of this.fp) {  // drifting dots — the visible current (varied colour & alpha)
+        const a = flowAngle(p.x, p.y, this.tf);
+        p.x += Math.cos(a) * 0.27; p.y += Math.sin(a) * 0.27; p.life--;
+        if (p.life < 0 || p.x < 0 || p.x > W || p.y < 0 || p.y > H) Object.assign(p, this.mkDot());
+        bg.fillStyle = rgba(p.col, p.al);
+        bg.fillRect(p.x, p.y, 1.8, 1.8);
+      }
+      // each ripple: an expanding circle that fades in fast then out slowly (across 2× its reach).
+      // width drifts over its life; thin ones draw crisp, thick ones draw with soft edges.
+      for (const r of this.ripples) {
+        const rad = (t - r.born) / 1000 * r.gspeed;
+        const k = rad / (r.maxR * 2);                  // 0 → 1 over its (doubled) life
+        const al = r.a * Math.min(1, rad / 14) * (1 - k) * (1 - k);
+        if (al < 0.004) continue;
+        const w = Math.max(0.5, r.width + r.dw * (rad / r.maxR));
+        if (w <= 3.5) {
+          bg.strokeStyle = rgba(COL.sky, al);
+          bg.lineWidth = w;
+          bg.beginPath(); bg.arc(r.x, r.y, rad, 0, 6.283); bg.stroke();
+        } else {
+          // soft-edged band: transparent → colour → transparent across the line width
+          const inner = Math.max(0, rad - w), outer = rad + w;
+          const g = bg.createRadialGradient(r.x, r.y, inner, r.x, r.y, outer);
+          g.addColorStop(0, rgba(COL.sky, 0));
+          g.addColorStop(0.5, rgba(COL.sky, al));
+          g.addColorStop(1, rgba(COL.sky, 0));
+          bg.fillStyle = g;
+          bg.beginPath(); bg.arc(r.x, r.y, outer, 0, 6.283); bg.fill();
+        }
+      }
+      bg.globalCompositeOperation = "source-over";
+      for (const L of this.lights) drawLight(bg, L, t);
+    },
+  },
+
+  // ---------- 7 · WANE — pulsing lights (effect 04 timing) ----------
+  // Each light breathes in and out; you can only gather it while it burns.
+  {
+    key: "wane", num: "VII", kicker: "now you see it",
+    name: "Wane", title: "Wane",
+    sub: "gather each light while it burns",
+    collectR: 44, gl: false,
+    setup() {
+      this.lights = [];
+      for (let i = 0; i < 11; i++) {
+        const L = mkLight(rand(W * 0.12, W * 0.88), rand(H * 0.16, H * 0.84));
+        L.period = (2600 + Math.random() * 1800) * 1.25;     // ~20% slower overall
+        L.phase = Math.random() * L.period;
+        L.glow = 0;
+        L.vx = rand(-0.2, 0.2); L.vy = rand(-0.2, 0.2);       // very slow drift
+        this.lights.push(L);
+      }
+    },
+    update(dt, t) {
+      for (const L of this.lights) {
+        const cyc = ((t + L.phase) % L.period) / L.period;   // 0..1
+        // capturable only during a SHORT window (first ~20% of the cycle)
+        const WIN = 0.20;
+        L.glow = cyc < WIN ? Math.sin((cyc / WIN) * Math.PI) : 0;
+        L.armed = L.glow > 0.3;
+        // slow drift, bouncing off the margins
+        L.x += L.vx; L.y += L.vy;
+        if (L.x < W * 0.08 || L.x > W * 0.92) L.vx *= -1;
+        if (L.y < H * 0.10 || L.y > H * 0.90) L.vy *= -1;
+      }
+    },
+    drawBg(t) {
+      fillNight("oklch(0.15 0.03 300)", "oklch(0.12 0.02 285)");
+      for (const L of this.lights) {
+        if (L.got) continue;
+        const g = L.glow || 0;
+        // persistent faint marker so each light can be located in the dark
+        bg.fillStyle = rgba(L.col, 0.16);
+        bg.beginPath(); bg.arc(L.x, L.y, 3.5, 0, 6.283); bg.fill();
+        if (g > 0.04) {  // clearly signal the capture window: several rings + big bright core
+          for (let k = 0; k < 3; k++) {
+            bg.strokeStyle = rgba(L.col, g * 0.5 * (1 - k * 0.28));
+            bg.lineWidth = 2;
+            bg.beginPath(); bg.arc(L.x, L.y, this.collectR * (0.5 + k * 0.32) * g, 0, 6.283); bg.stroke();
+          }
+          const rad = L.r * 4.6 * g;
+          const grd = bg.createRadialGradient(L.x, L.y, 0, L.x, L.y, rad);
+          grd.addColorStop(0, rgba(L.col, 0.98 * g));
+          grd.addColorStop(0.3, rgba(L.col, 0.55 * g));
+          grd.addColorStop(1, rgba(L.col, 0));
+          bg.fillStyle = grd;
+          bg.beginPath(); bg.arc(L.x, L.y, rad, 0, 6.283); bg.fill();
+          bg.fillStyle = rgba(COL.cream, 0.95 * g);
+          bg.beginPath(); bg.arc(L.x, L.y, L.r * 0.7 * g, 0, 6.283); bg.fill();
+        }
+      }
+    },
+  },
+
+  // ---------- 8 · COMET — hyperspace warp (effect 07) ----------
+  // Lights streak outward from the centre and accelerate; intercept each near the core.
+  {
+    key: "comet", num: "VIII", kicker: "chase the falling light",
+    name: "Comet", title: "Comet",
+    sub: "catch each as it streaks past",
+    collectR: 48, gl: false, showCursor: true,
+    // the wisp's light goes dark near screen-centre (so you can't win by sitting still),
+    // fading in past ~150px out; the hollow ring cursor stays visible to aim with
+    wispPower() { return smoothstep(120, 180, Math.hypot(wisp.x - W / 2, wisp.y - H / 2)); },
+    spawn() {
+      return { a: rand(0, 6.28), z: 0.04 + Math.random() * 0.05,
+               col: HUES[(Math.random() * HUES.length) | 0], r: 8, ph: rand(0, 6.28),
+               got: false, x: W / 2, y: H / 2 };
+    },
+    setup() {
+      this.stars = [];
+      for (let i = 0; i < 280; i++)
+        this.stars.push({ a: rand(0, 6.28), z: rand(0.02, 1), sp: rand(0.004, 0.011) });
+      this.lights = [];
+      for (let i = 0; i < 8; i++) this.lights.push(this.spawn());
+    },
+    update(dt, t) {
+      const cx = W / 2, cy = H / 2, reach = Math.min(W, H) * 0.92;
+      for (const L of this.lights) {
+        if (L.got) continue;
+        L.z += L.z * 0.045 + 0.004;            // accelerate outward
+        const rad = L.z * reach;
+        L.x = cx + Math.cos(L.a) * rad;
+        L.y = cy + Math.sin(L.a) * rad;
+        if (L.x < -50 || L.x > W + 50 || L.y < -50 || L.y > H + 50) {
+          L.a = rand(0, 6.28); L.z = 0.04 + Math.random() * 0.05;  // missed → recycle, never lost
+        }
+      }
+    },
+    drawBg(t) {
+      const cx = W / 2, cy = H / 2, reach = Math.min(W, H) * 0.95;
+      fillNight("oklch(0.12 0.02 270)", "oklch(0.10 0.02 285)");
+      bg.lineWidth = 1.5;
+      for (const s of this.stars) {
+        s.z += s.sp; if (s.z > 1) { s.z = 0.02; s.a = rand(0, 6.28); }
+        const c = Math.cos(s.a), si = Math.sin(s.a);
+        const r1 = s.z * reach, r2 = Math.max(0, (s.z - s.sp * 3)) * reach;
+        bg.strokeStyle = rgba(COL.cream, Math.min(0.7, s.z));
+        bg.beginPath(); bg.moveTo(cx + c * r2, cy + si * r2); bg.lineTo(cx + c * r1, cy + si * r1); bg.stroke();
+      }
+      for (const L of this.lights) drawLight(bg, L, t);
+    },
+  },
+];
+
+// ============================================================
+//  Game state machine
+// ============================================================
+const Game = { state: "title", current: null, completed: new Set(), unlockedAll: false };
+
+const scr = {
+  title: document.getElementById("scr-title"),
+  map:   document.getElementById("scr-map"),
+  end:   document.getElementById("scr-end"),
+};
+const hud = document.getElementById("hud");
+const toast = document.getElementById("toast");
+
+function showScreen(name) {
+  for (const k in scr) scr[k].classList.toggle("active", k === name);
+  document.getElementById("conic").classList.toggle("show", name !== "play");
+  hud.classList.toggle("show", name === "play");
+  cursorEl.classList.toggle("play", name === "play");
+}
+
+function updateHud() {
+  const lv = Game.current; if (!lv) return;
+  document.getElementById("hudHave").textContent = lv.have;
+  document.getElementById("hudNeed").textContent = lv.lights.length;
+}
+
+// ---- text scramble (effect 08) for the level name reveal ----
+function scrambleInto(el, target) {
+  const chars = "·•✦✧*+°⋆";
+  let frame = 0;
+  const len = target.length;
+  const ends = [...target].map(() => 6 + Math.floor(Math.random() * 22));
+  function tick() {
+    let out = "";
+    let done = 0;
+    for (let i = 0; i < len; i++) {
+      if (frame >= ends[i]) { out += target[i]; done++; }
+      else out += chars[(Math.random() * chars.length) | 0];
+    }
+    el.textContent = out;
+    if (done === len) return;
+    frame++; requestAnimationFrame(tick);
+  }
+  tick();
+}
+
+// ---- fade transition helper ----
+const fadeEl = document.getElementById("fade");
+function fadeOut(cb, fast) {
+  fadeEl.style.transitionDuration = fast ? "0.16s" : "0.55s";
+  fadeEl.classList.add("on");
+  setTimeout(cb, fast ? 170 : 560);
+}
+function fadeIn() { fadeEl.classList.remove("on"); }
+
+// ---- start / leave a level ----
+function startLevel(i) {
+  fadeOut(() => {
+    const lv = LEVELS[i];
+    lv.idx = i; lv.have = 0;
+    lv.setup();
+    Game.current = lv;
+    Game.state = "play";
+    // toggle special layers
+    glCanvas.style.display = lv.gl ? "block" : "none";
+    gooStage.style.display = lv.goo ? "block" : "none";
+    stage.classList.toggle("bloom", !!lv.goo);
+    lensEl.style.display = lv.lens ? "block" : "none";
+    if (lv.lens) lensEl.style.width = lensEl.style.height = (lv.lensR * 2) + "px",
+                 lensEl.style.margin = (-lv.lensR) + "px 0 0 " + (-lv.lensR) + "px";
+    showScreen("play");
+    cursorEl.classList.toggle("play", !lv.showCursor); // keep the ring visible where a level needs it
+    document.getElementById("hudKick").textContent = lv.kicker;
+    scrambleInto(document.getElementById("hudName"), lv.name);
+    updateHud();
+    pad();
+    fadeIn();
+  });
+}
+
+let pendingContinue = null;  // set while the completion toast is up; a click skips the wait
+function onLevelComplete() {
+  const lv = Game.current;
+  const wasGated = !firstTierDone();
+  Game.completed.add(lv.key);
+  arpUp();
+  // celebratory bloom
+  emit(wisp.x, wisp.y, 60, 4.5, COL.cream, 80);
+  const justUnlocked = wasGated && firstTierDone() && Game.completed.size < LEVELS.length;
+  toast.innerHTML = justUnlocked
+    ? "the way deepens<small>four new scenes have opened · click to go on</small>"
+    : "this place is full of light<small>" + lv.kicker + " · click to go on</small>";
+  toast.classList.add("show");
+  const proceed = (fast) => {
+    if (!pendingContinue) return;
+    clearTimeout(pendingContinue.timer);
+    pendingContinue = null;
+    toast.classList.remove("show");
+    if (Game.completed.size >= LEVELS.length) gotoEnding(fast);
+    else gotoMap(fast);
+  };
+  pendingContinue = { proceed };
+  pendingContinue.timer = setTimeout(() => proceed(false), justUnlocked ? 3000 : 2400);
+}
+// click anywhere during the completion toast → fade back to the map quickly
+window.addEventListener("pointerdown", () => { if (pendingContinue) pendingContinue.proceed(true); });
+
+function gotoMap(fast) {
+  fadeOut(() => {
+    Game.current = null; Game.state = "map";
+    glCanvas.style.display = "none";
+    gooStage.style.display = "none";
+    stage.classList.remove("bloom");
+    lensEl.style.display = "none";
+    buildCards();
+    showScreen("map");
+    seedStars(140);
+    fadeIn();
+  }, fast);
+}
+
+function gotoEnding(fast) {
+  fadeOut(() => {
+    Game.current = null; Game.state = "end";
+    glCanvas.style.display = "none";
+    gooStage.style.display = "none";
+    stage.classList.remove("bloom");
+    lensEl.style.display = "none";
+    Game.unlockedAll = true;  // once you finish, all scenes stay open on replay
+    showScreen("end");
+    arpUp();
+    fadeIn();
+  }, fast);
+}
+
+// ============================================================
+//  Level select cards (effect 20 spotlight)
+// ============================================================
+const cardSVGs = [
+  // drift
+  `<svg viewBox="0 0 100 100" class="ico"><g fill="none" stroke="currentColor" stroke-width="2" opacity="0.85"><circle cx="50" cy="50" r="6" fill="currentColor" stroke="none"/><circle cx="26" cy="34" r="2.5" fill="currentColor" stroke="none"/><circle cx="74" cy="30" r="2" fill="currentColor" stroke="none"/><circle cx="70" cy="68" r="3" fill="currentColor" stroke="none"/><circle cx="30" cy="70" r="2.2" fill="currentColor" stroke="none"/><circle cx="50" cy="50" r="22" opacity="0.3"/></g></svg>`,
+  // hollow / voronoi
+  `<svg viewBox="0 0 100 100" class="ico"><g fill="none" stroke="currentColor" stroke-width="2" opacity="0.8"><path d="M50 12 L78 30 L72 62 L40 74 L20 50 Z"/><path d="M50 12 L40 40 M78 30 L40 40 M40 40 L40 74 M40 40 L20 50 M40 40 L72 62"/></g></svg>`,
+  // tide
+  `<svg viewBox="0 0 100 100" class="ico"><g fill="none" stroke="currentColor" stroke-width="2.4" opacity="0.85"><path d="M12 44 Q32 28 50 44 T88 44"/><path d="M12 60 Q32 44 50 60 T88 60" opacity="0.6"/></g></svg>`,
+  // veil
+  `<svg viewBox="0 0 100 100" class="ico"><g fill="none" stroke="currentColor" stroke-width="2" opacity="0.85"><circle cx="50" cy="50" r="22"/><circle cx="50" cy="50" r="3" fill="currentColor" stroke="none"/><line x1="66" y1="66" x2="82" y2="82" stroke-width="3"/></g></svg>`,
+  // bloom
+  `<svg viewBox="0 0 100 100" class="ico"><g fill="currentColor" opacity="0.85"><circle cx="42" cy="48" r="17"/><circle cx="62" cy="56" r="13"/><circle cx="56" cy="36" r="10"/></g></svg>`,
+  // current / flow
+  `<svg viewBox="0 0 100 100" class="ico"><g fill="none" stroke="currentColor" stroke-width="2.2" opacity="0.85"><path d="M14 32 Q40 20 58 34 T90 32"/><path d="M10 52 Q36 40 54 54 T86 52" opacity="0.7"/><path d="M16 72 Q42 60 60 74 T92 72" opacity="0.5"/></g></svg>`,
+  // wane / pulse
+  `<svg viewBox="0 0 100 100" class="ico"><g fill="none" stroke="currentColor" opacity="0.85"><circle cx="50" cy="50" r="6" fill="currentColor" stroke="none"/><circle cx="50" cy="50" r="18" stroke-width="2"/><circle cx="50" cy="50" r="30" stroke-width="1.5" opacity="0.5"/></g></svg>`,
+  // comet / warp
+  `<svg viewBox="0 0 100 100" class="ico"><g stroke="currentColor" stroke-width="2" opacity="0.85" fill="none"><line x1="50" y1="50" x2="20" y2="24"/><line x1="50" y1="50" x2="82" y2="30"/><line x1="50" y1="50" x2="30" y2="80"/><line x1="50" y1="50" x2="78" y2="74"/><circle cx="50" cy="50" r="5" fill="currentColor" stroke="none"/></g></svg>`,
+];
+
+const GATE = 4; // first GATE levels are open; the rest unlock once all of them are gathered
+function firstTierDone() {
+  return LEVELS.slice(0, GATE).every(l => Game.completed.has(l.key));
+}
+
+function buildCards() {
+  const wrap = document.getElementById("cards");
+  wrap.innerHTML = "";
+  const unlocked = Game.unlockedAll || firstTierDone();
+  document.getElementById("mapSub").textContent = unlocked
+    ? "eight scenes · one wandering light"
+    : "four scenes · one wandering light";
+  // until the first tier is gathered, only the first four scenes exist at all
+  const shown = unlocked ? LEVELS : LEVELS.slice(0, GATE);
+  shown.forEach((lv, i) => {
+    const c = document.createElement("div");
+    c.className = "card" + (Game.completed.has(lv.key) ? " complete" : "");
+    c.innerHTML =
+      `<span class="num">${lv.num}</span>` +
+      `<span class="done">✦ gathered</span>` +
+      `<span style="color:var(--lav)">${cardSVGs[i]}</span>` +
+      `<div class="kick">${lv.kicker}</div>` +
+      `<div class="ttl">${lv.title}</div>` +
+      `<div class="sub">${lv.sub}</div>`;
+    c.addEventListener("pointermove", e => {
+      const r = c.getBoundingClientRect();
+      c.style.setProperty("--mx", (e.clientX - r.left) + "px");
+      c.style.setProperty("--my", (e.clientY - r.top) + "px");
+    });
+    c.addEventListener("click", () => { audio(); startLevel(i); });
+    wrap.appendChild(c);
+  });
+}
+
+// ============================================================
+//  Title interactions (glitch 18, wave 19, magnetic 15)
+// ============================================================
+(function setupTitle() {
+  // letter-wave subtitle
+  const sub = document.getElementById("subtitle");
+  const txt = sub.textContent;
+  sub.innerHTML = [...txt].map((c, i) =>
+    `<span style="--i:${i}">${c === " " ? "&nbsp;" : c}</span>`).join("");
+
+  // periodic glitch flicker on the title
+  const title = document.getElementById("title");
+  setInterval(() => {
+    if (Game.state !== "title") return;
+    title.classList.add("go");
+    setTimeout(() => title.classList.remove("go"), 1500);
+  }, 4200);
+
+  // end screen wave text
+  const et = document.getElementById("endText");
+  et.innerHTML = [...et.textContent].map((c, i) =>
+    `<span style="--i:${i}">${c === " " ? "&nbsp;" : c}</span>`).join("");
+
+  // magnetic Begin button
+  const begin = document.getElementById("beginBtn");
+  scr.title.addEventListener("pointermove", e => {
+    const r = begin.getBoundingClientRect();
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    const dx = e.clientX - cx, dy = e.clientY - cy;
+    const d = Math.hypot(dx, dy);
+    if (d < 170) { const f = (1 - d / 170) * 0.4; begin.style.transform = `translate(${dx*f}px,${dy*f}px)`; }
+    else begin.style.transform = "";
+  });
+  scr.title.addEventListener("pointerleave", () => begin.style.transform = "");
+
+  begin.addEventListener("click", () => { audio(); pad(); gotoMap(); });
+  document.getElementById("againBtn").addEventListener("click", () => {
+    Game.completed.clear(); gotoMap();
+  });
+})();
+
+// keyboard: Esc returns to map
+window.addEventListener("keydown", e => {
+  if (e.key === "Escape" && Game.state === "play") gotoMap();
+});
+
+// ============================================================
+//  Main loop
+// ============================================================
+function loop(t) {
+  tNow = t;
+  // background per state
+  if (Game.state === "play" && Game.current) {
+    const lv = Game.current;
+    lv.update(16, t);
+    if (lv.gl) drawGL(lv.have / lv.lights.length, lv.siteNorm);
+    lv.drawBg(t);
+    updateWisp(16);
+    if (lv.afterWisp) lv.afterWisp(t);
+    wispPower = lv.wispPower ? lv.wispPower() : 1;
+    tryCollect(lv.collectR);
+    if (lv.lens) { lensEl.style.left = wisp.x + "px"; lensEl.style.top = wisp.y + "px"; }
+  } else {
+    // menu: subtle stars over the conic backdrop + the living wisp
+    bg.clearRect(0, 0, W, H);
+    bg.globalCompositeOperation = "lighter";
+    drawStars(t, 0.35);
+    bg.globalCompositeOperation = "source-over";
+    updateWisp(16);
+    wispPower = 1;
+  }
+  drawFx();
+  requestAnimationFrame(loop);
+}
+
+// ============================================================
+//  Boot
+// ============================================================
+resize();
+initGL();
+showScreen("title");
+document.getElementById("conic").classList.add("show");
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
